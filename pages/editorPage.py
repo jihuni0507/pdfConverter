@@ -1,11 +1,13 @@
+import os
+
 from PyQt5.QtWidgets import QWidget, QLabel, QPushButton, QVBoxLayout, QHBoxLayout, QListWidget, QTextEdit
-from PyQt5.QtWidgets import QAction, QFileDialog, QTextEdit, QListWidgetItem, QSizePolicy
+from PyQt5.QtWidgets import QAction, QFileDialog, QTextEdit, QListWidgetItem, QSizePolicy, QDialog
 from PyQt5.QtGui import QIcon, QPixmap
 from PyQt5.QtCore import Qt, QSize
 
 from .imageEditorPopup import ImageEditorPopup
 from .pageSettingPopup import PageSettingPopup
-from core import convert2pdf
+from core.convert2pdf import convert2PDF
 
 class EditorPage(QWidget):
   def __init__(self, parent=None):
@@ -36,10 +38,12 @@ class EditorPage(QWidget):
     self.layout_bottom = QHBoxLayout()
     self.btn_openImg = QPushButton("이미지 열기")
     self.btn_editImg = QPushButton("이미지 편집")
+    self.btn_savePreview = QPushButton("미리보기 저장")
     self.btn_pageSetting = QPushButton("페이지 설정")
     self.btn_save = QPushButton("PDF로 저장")
     self.layout_bottom.addWidget(self.btn_openImg)
     self.layout_bottom.addWidget(self.btn_editImg)
+    self.layout_bottom.addWidget(self.btn_savePreview)
     self.layout_bottom.addWidget(self.btn_pageSetting)
     self.layout_bottom.addWidget(self.btn_save)
 
@@ -54,8 +58,11 @@ class EditorPage(QWidget):
     self.setLayout(main_layout)
 
     ### 이벤트 처리 ###
+    self.preview_index = 0
+
     self.btn_openImg.clicked.connect(self.showFileDialog)
     self.btn_editImg.clicked.connect(self.openImageEditor)
+    self.btn_savePreview.clicked.connect(self.savePreview)
     self.btn_pageSetting.clicked.connect(self.openPageSetting)
     self.btn_save.clicked.connect(self.createPDFfile)
 
@@ -64,14 +71,15 @@ class EditorPage(QWidget):
     self.image_paths = []
 
     ##############  PDF 변환 위해 넘겨야 하는 자료(로직 추가 필요) ##################
-    img_sources = []  # img_sources의 element 구조: [path, x1, y1, x2, y2] (비율로 받음)
-    padding = []      # padding의 element 구조    : [좌측, 상단, 우측, 하단]
+    self.img_sources = []  # img_sources의 element 구조: [path, x1, y1, x2, y2] (비율로 받음)
+    self.padding = []      # padding의 element 구조    : [좌측, 상단, 우측, 하단]
     ###########################################################################
 
   def showFileDialog(self):
     files, _ = QFileDialog.getOpenFileNames(self, '이미지 파일 선택', './', 'Image Files (*.png *.jpg *.bmp)')
     for file_path in files:
       self.image_paths.append(file_path)
+      # self.img_sources.append([file_path, 0 for _ in range(4)])
 
       pixmap = QPixmap(file_path)
       icon = QIcon(pixmap.scaled(80, 80, Qt.KeepAspectRatio, Qt.SmoothTransformation))
@@ -88,14 +96,28 @@ class EditorPage(QWidget):
     if currentItem:
       image_path = currentItem.data(Qt.UserRole)
       editor = ImageEditorPopup(image_path, self)
-      editor.exec_()
+      if editor.exec_() == QDialog.Accepted:
+        cropped_pixmap = editor.cropped_pixmap
+        self.preview_label.setPixmap(cropped_pixmap)
 
+  def savePreview(self):
+    index = self.preview_index
+    file_name = os.path.basename(self.image_paths[index])
+    name, _ = os.path.splitext(file_name)
+    pixmap = self.preview_label.pixmap()
+    if not pixmap:
+      return
+    save_folder = QFileDialog.getExistingDirectory(self, "저장할 폴더 선택","./")
+    if save_folder:
+      save_path = os.path.join(save_folder, f"{name}_cropped.png")
+      pixmap.save(save_path, "PNG")
+  
   def openPageSetting(self):
     pageSetting = PageSettingPopup(self)
     pageSetting.exec_()
 
   def createPDFfile(self):
-    return 0  
+    convert2PDF(self.img_sources, [], pdf_path='C:\\GIST\\dev\\pdfConverter\\ouput.pdf') ### 임시, 꼭 크롭한 이미지 파일이 들어가도록 수정!!! 
 
   ### 이미지 미리보기 ###
   def displayImage(self, image_path):
@@ -105,6 +127,7 @@ class EditorPage(QWidget):
 
   def changeDisplay(self, item):
     index = self.image_list.row(item)
+    self.preview_index = index
     pixmap = QPixmap(self.image_paths[index])
     scaled_pixmap = pixmap.scaled(self.preview_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
     self.preview_label.setPixmap(scaled_pixmap)
